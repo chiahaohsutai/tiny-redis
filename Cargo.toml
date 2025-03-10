@@ -3,6 +3,12 @@ name = "tiny-redis"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "tiny_redis"
+
+[[bin]]
+name = "tiny-redis"
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 mini-redis = "0.4"
