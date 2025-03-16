@@ -1,10 +1,9 @@
-use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddrV4};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::{env, process};
 use tokio::net::TcpListener;
-use tiny_redis::serve;
+use tiny_redis::{serve, ShardedDB};
 
 #[tokio::main]
 async fn main() {
@@ -15,7 +14,7 @@ async fn main() {
 
     let addr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port);
     let listener = TcpListener::bind(addr).await;
-    let database = Arc::new(Mutex::new(HashMap::new()));
+    let database = Arc::new(ShardedDB::new(3));
 
     match listener {
         Ok(listener) => serve(listener, database.clone()).await,
