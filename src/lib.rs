@@ -2,10 +2,10 @@ use bytes::Bytes;
 use mini_redis::Command::{self, Get, Set};
 use mini_redis::{Connection, Frame};
 use std::collections::HashMap;
+use std::hash::{self, Hash, Hasher};
 use std::io::ErrorKind;
 use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
-use std::hash::{self, Hash, Hasher};
 
 fn hash<T: Hash>(value: &T) -> u64 {
     let mut hasher = hash::DefaultHasher::new();
@@ -23,39 +23,44 @@ impl ShardedDB {
         (0..n).for_each(|_| db.push(Mutex::new(HashMap::new())));
         ShardedDB { db: Arc::new(db) }
     }
-    pub fn insert(&self, key: &str, value: Bytes) {
+    pub fn insert(&self, key: &str, value: Bytes) -> Option<Bytes> {
         let mut shard = self.db[self.index(&key)].lock().unwrap();
-        shard.insert(key.to_string(), value);
+        shard.insert(key.to_string(), value)
     }
     pub fn get(&self, key: &str) -> Option<Bytes> {
         let shard = self.db[self.index(&key)].lock().unwrap();
         shard.get(key).cloned()
     }
     fn index(&self, key: &str) -> usize {
-        (hash(&key) % self.db.len() as u64) as usize 
+        (hash(&key) % self.db.len() as u64) as usize
     }
 }
 
 async fn process(socket: TcpStream, db: Arc<ShardedDB>) {
     let mut connection = Connection::new(socket);
-    while let Some(frame) = connection.read_frame().await.unwrap_or(None) {
+    while let Ok(Some(frame)) = connection.read_frame().await {
         let resp = match Command::from_frame(frame) {
-            Ok(command) => {
-                match command {
-                    Get(cmd) => db
-                        .get(cmd.key())
+            Ok(command) => match command {
+                Get(cmd) => {
+                    println!("Retrieving a cached value.");
+                    db.get(cmd.key())
                         .map(|v| Frame::Bulk(v.clone()))
-                        .unwrap_or(Frame::Null),
-                    Set(cmd) => {
-                        db.insert(cmd.key(), cmd.value().clone());
-                        Frame::Simple(String::from("Ok"))
-                    }
-                    _ => Frame::Error(String::from("Unsupported command.")),
+                        .unwrap_or(Frame::Null)
                 }
-            }
+                Set(cmd) => {
+                    println!("Inserting a new value to the cache.");
+                    db.insert(cmd.key(), cmd.value().clone())
+                        .map(|v| Frame::Bulk(v.clone()))
+                        .unwrap_or(Frame::Null)
+                }
+                _ => {
+                    eprintln!("Unsupported command.");
+                    Frame::Error(String::from("Unsupported command."))
+                }
+            },
             Err(err) => {
                 eprintln!("Error parsing command from frame: {}", err);
-                Frame::Error(String::from(String::from("Unsupported command.")))
+                Frame::Error(String::from(String::from("Failed to read the command.")))
             }
         };
         connection.write_frame(&resp).await.unwrap_or(());
