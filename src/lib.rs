@@ -7,6 +7,8 @@ use std::io::ErrorKind;
 use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
 
+mod conn;
+
 fn hash<T: Hash>(value: &T) -> u64 {
     let mut hasher = hash::DefaultHasher::new();
     value.hash(&mut hasher);
