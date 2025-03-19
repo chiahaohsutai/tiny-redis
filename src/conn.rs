@@ -3,7 +3,7 @@ use std::io::Cursor;
 use bytes::BytesMut;
 use mini_redis::{Frame, Result};
 use mini_redis::frame::Error::Incomplete;
-use tokio::io::{AsyncReadExt, BufWriter};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::net::TcpStream;
 
 pub struct Connection {
@@ -44,5 +44,15 @@ impl Connection {
             Err(Incomplete) => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+    async fn write_decimal(&mut self, val: u64) -> Result<()> {
+        use std::io::Write;
+        let mut buf = [0u8; 12];
+        let mut buf = Cursor::new(&mut buf[..]);
+        write!(&mut buf, "{}", val)?;
+        let pos = buf.position() as usize;
+        self.stream.write_all(&buf.get_ref()[..pos]).await?;
+        self.stream.write_all(b"\r\n").await?;
+        Ok(())
     }
 }
